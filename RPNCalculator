@@ -1,0 +1,143 @@
+// PROJECT :RPN Calculator
+// PURPOSE :Implementation of Reverse Polish Notation (RPN) Calculator
+// COURSE  :ICS3U-E
+// AUTHOR  :Hunter Gibson
+// DATE    :2025 04 20
+// MCU     :328P (Standalone)
+// STATUS  :Working
+// REFERENCE : http://darcy.rsgc.on.ca/ACES/TEI3M/Tasks.html#RPN 
+
+#include "Stack.h"
+#include <LiquidCrystal.h>  
+
+// Define constants
+#define DEBOUNCE_DELAY 300   // Time delay to debounce
+#define ENABLE_DEBUG 1       // Enables serial debugging if set to 1
+
+// Create an instance of a stack to store numbers for calculations
+Stack stack;
+int stackCount = 0;          // Tracks how many numbers are in the stack
+
+// Buffer to store user input before pushing to the stack
+char inputBuffer[16] = "";   // Holds typed numbers before pushing
+int bufferPosition = 0;      // Tracks current position in the buffer
+
+// Define the LCD display's pin configuration
+const int rs = 9, en = 8, d4 = 7, d5 = 6, d6 = 5, d7 = 4;
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+
+// Define keypad thresholds (analog values) to determine which button is pressed
+uint16_t keypadThresholds[] = { 55, 58, 62, 66, 74, 81, 88, 97, 116, 131, 151, 178, 254, 340, 510, 1023 };
+char keypadKeys[] = { '+', 'E', '.', '0', '-', '3', '2', '1', '*', '6', '5', '4', '/', '9', '8', '7' };
+
+// Sets up the LCD and serial communication
+void setup() {
+    lcd.begin(16, 2);           // Initialize the LCD display (16 columns, 2 rows)
+    lcd.print("RPN Calculator"); // Display a startup message
+    Serial.begin(9600);         // Start serial communication for debugging
+}
+
+// Reads a key press from the keypad using analog values
+char readKey() {
+    uint16_t value;
+    
+    // Wait for a key to be pressed
+    do { 
+        value = analogRead(A5); // Read the analog input value from the keypad
+    } while (value == 0);
+    
+    delay(DEBOUNCE_DELAY); // Apply debounce delay to avoid multiple detections
+    
+    // Find the corresponding key based on the analog value
+    for (uint8_t i = 0; i < sizeof(keypadThresholds) / sizeof(keypadThresholds[0]); i++) {
+        if (value <= keypadThresholds[i]) return keypadKeys[i]; // Return the matched key
+    }
+    
+    return '\0'; // If no valid key found, return an empty character
+}
+
+// Displays a simple message on the LCD
+void showMessage(const char* message) {
+    lcd.clear();  // Clear the screen
+    lcd.print(message); // Print the message on the LCD
+}
+
+// Pushes the current input buffer into the stack as a number
+void push() {
+    if (bufferPosition > 0) {  // Check if the user has entered a number
+        float numPushed = atof(inputBuffer); // Convert the buffer content to a float
+        stack.push(numPushed);  // Push the number onto the stack
+        stackCount++;  // Increase the stack count
+        
+        // Display confirmation of the pushed number
+        lcd.clear();
+        lcd.print(numPushed, 4); // Show the number with 4 decimal places
+        lcd.print(" Pushed");
+
+        // Reset the buffer for new input
+        bufferPosition = 0;
+        inputBuffer[0] = '\0';
+    } else {
+        showMessage("No Input"); // Show error if no input was provided
+    }
+}
+
+// Performs arithmetic operations based on user input (+, -, *, /)
+void op(char operation) {
+    if (stackCount < 2) { // Ensure there are at least two numbers in the stack
+        showMessage("Stack Empty");  
+        return;  // Exit the function
+    }
+
+    float secondNumber = stack.pop(); // Get second operand from the stack
+    float firstNumber = stack.pop();  // Get first operand
+
+    float result = 0;  // Store the result
+
+    // Prevent division by zero
+    if (operation == '/' && secondNumber == 0) {
+        showMessage("Div by 0");
+        return;
+    }
+
+    // Perform the calculation based on the operation type
+    if (operation == '+') result = firstNumber + secondNumber;
+    else if (operation == '-') result = firstNumber - secondNumber;
+    else if (operation == '*') result = firstNumber * secondNumber;
+    else result = firstNumber / secondNumber;
+
+    // Push the result onto the stack and increase the stack count
+    stack.push(result);
+    stackCount++;
+
+    // Display the result on the LCD
+    lcd.clear();
+    lcd.print("Result: ");
+    lcd.print(result, 4); // Show the result with 4 decimal places
+}
+
+// Handles key presses and determines what action to take
+void handle(char key) {
+    if ((key >= '0' && key <= '9') || key == '.') {  // If the user entered a number or a decimal point
+        if (bufferPosition < sizeof(inputBuffer) - 1) { // Check if buffer has space
+            inputBuffer[bufferPosition++] = key; // Add key press to input buffer
+        } else {
+            showMessage("Overflow");  // Show error if input is too long
+        }
+        
+        inputBuffer[bufferPosition] = '\0'; // Null-terminate the input buffer
+        lcd.clear();
+        lcd.print(inputBuffer);  // Display current input on LCD
+    } else if (key == 'E') {  // If the "Enter" key is pressed
+        push(); // Push the input number onto the stack
+    } else if (strchr("+-*/", key)) { // If the user pressed an operator key
+        if (bufferPosition > 0) push();  // Push any pending input before the operation
+        op(key); // Perform the requested arithmetic operation
+    }
+}
+
+// Main program loop: continuously reads user input and processes it
+void loop() {
+    char key = readKey(); // Read a key press from the keypad
+    handle(key); // Process the key press
+}
